@@ -122,6 +122,100 @@ class raw_data:
         return r_dict
 
 
+class metadata:
+    """
+    This class will carry the metadata for the raw_data. This will include spec limits, normality coefficients (shapiro-wilks test), and other metadata that will be useful in the process statisics
+    """
+
+    def __init__(self, filename, **kwargs):
+        self.header: int = kwargs.get("header", 1)
+        self.index: int = kwargs.get("index", 1)
+        groupby: list = kwargs.get("groupby", None)
+        self.sheetname: str | None = kwargs.get("sheetname", None)
+
+        self.raw_data = raw_data(
+            filename,
+            sheetname=self.sheetname,
+            header=self.header,
+            index=self.index,
+            groupby=groupby,
+        )
+        columns = ["Product", "Grade", "Spec", "USL", "LSL", "UCL", "LCL"]
+
+        self.metadata = pd.DataFrame(columns=columns)
+
+    def set_spec_limit(self, spec: str, usl: float, lsl: float, **kwargs) -> None:
+        """
+        This function sets the spec limits on a specific spec. Can also add grade code and product if needed
+
+        Args:
+            spec: Column string for the spec to apply to
+            usl: upper spec limit for the spec
+            lsl: lower spec limit for the spec
+        """
+
+        product: str = kwargs.get("product", None)
+        grade: str = kwargs.get("grade", None)
+
+        try:
+            if (
+                self.metadata[
+                    self.metadata[("Product" == product) & ("Grade" == grade)]
+                ]
+                != None
+            ):
+                usl_ck = self.metadata[
+                    self.metadata[("Product" == product) & ("Grade" == grade)]
+                ]["USL"]
+
+                lsl_ck = self.metadata[
+                    self.metadata[("Product" == product) & ("Grade" == grade)]
+                ]["LSL"]
+        except KeyError:
+            pd_dict = {
+                "Product": product,
+                "Grade": grade,
+                "Spec": spec,
+                "USL": usl,
+                "LSL": lsl,
+            }
+
+            self.metadata.loc[len(self.metadata.index)] = pd_dict
+
+    def create_new_metadata(self, data_col: str):
+        """
+        This function adds new metadata to the table for tracking in specs
+        """
+
+        self.metadata[data_col] = None
+
+    def save_data(self, export_type: str = "xlsx", save_metadata: bool = True):
+        """
+        This function exports the broken down raw data and meta data into documents and saves them.
+
+        Args:
+            export_type: how the data should be exported. Either xlsx or csv (future version can save database)
+        """
+
+        match export_type:
+            case "xlsx":
+                wb = xw.Book()
+                for key in self.raw_data.groups.keys():
+                    wb.sheets.add(key)
+                    sheet = wb.sheets[key]
+                    sheet.activate()
+                    j = 0
+                    for grade in self.raw_data.groups[key].keys():
+                        if j == 0:
+                            sheet.range("A1").select()
+                            sheet["A1"].value = self.raw_data.groups[key][grade]
+                            j = 1
+                        else:
+                            sheet.range("A1").end("down").options(
+                                header=False
+                            ).value = self.raw_data.groups[key][grade]
+
+
 class data_structure:
     """
     The purpose of this class is to break down the imported data into both
