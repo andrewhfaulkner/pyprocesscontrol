@@ -10,6 +10,8 @@ from tkinter import filedialog
 import xlwings as xw
 from xlwings.constants import DeleteShiftDirection
 
+from pyprocesscontrol import statistics
+
 
 class raw_data:
     """
@@ -182,10 +184,17 @@ class metadata:
 
             self.metadata.loc[len(self.metadata.index)] = pd_dict
 
-    def create_new_metadata(self, data_col: str):
+    def create_new_metadata(self, func: str, data_col: str):
         """
-        This function adds new metadata to the table for tracking in specs
+        This function adds new metadata from a specified list to the table for tracking in specs
         """
+
+        match func:
+            case "shapiro-wilk":
+                for index, data in self.metadata["Grade"].iterrows():
+                    self.__metadata_apply_shapiro(
+                        "fjjsa;lfk", product=data["Product"], grade=data["Grade"]
+                    )
 
         self.metadata[data_col] = None
 
@@ -214,6 +223,50 @@ class metadata:
                             sheet.range("A1").end("down").options(
                                 header=False
                             ).value = self.raw_data.groups[key][grade]
+
+                path = os.path.join(os.getcwd(), "_raw_data.xlsx")
+
+                wb.save(path=path)
+
+                if save_metadata == True:
+                    meta_wb = xw.Book()
+                    sheet = meta_wb.sheet[meta_wb.sheet_names[0]]
+                    sheet.range("A1").value = self.metadata
+
+                    path = os.path.join(os.getcwd(), "_metadata.xlsx")
+                    meta_wb.save(path)
+
+    def __metadata_apply_shapiro(self, func, **kwargs):
+        """
+        The purpose of this function is to apply calculations to rows of data and pass them into the metadata dataframe. This will make custom calculations possible for metadata
+
+        Args:
+            func: A function to apply to a dataframe column and the result will be returned to the metadata column
+            col_name: The name of the column the formula will apply on
+        """
+
+        grade: str = kwargs.get("grade", None)
+        product: str = kwargs.get("product", None)
+
+        if self.raw_data.groups != None:
+            data = self.raw_data.groups[grade][grade, product]
+
+            if isinstance(data, pd.Series):
+                p_val = statistics.shapiro_wilk(data)
+
+        # Does shapiro-wilk exist
+        try:
+            self.metadata["shapiro-wilk"].loc[
+                (self.metadata["Grade"] == grade)
+                & (self.metadata["Product"] == product)
+            ] = p_val
+
+        except IndexError:
+            self.create_new_metadata("shapiro-wilk")
+            self.metadata["shapiro-wilk"].loc[
+                (self.metadata["Grade"] == grade)
+                & (self.metadata["Product"] == product)
+            ] = p_val
 
 
 class data_structure:
