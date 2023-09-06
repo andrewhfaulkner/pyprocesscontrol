@@ -32,10 +32,12 @@ class raw_data:
         groupby: list = kwargs.get("groupby", None)
         self.path = None
 
+        # look for the filename in the working directory
         for root, dir, files in os.walk(os.getcwd()):
             if self.filename in files:
                 self.path = os.path.join(root, self.filename)
 
+        # Not in the working directory -- You tell me where it is
         if self.path == None:
             try:
                 root = tk.Tk()
@@ -50,6 +52,7 @@ class raw_data:
         name = split_tup[0]
         extension = split_tup[1]
 
+        # What is the format of the file
         match extension:
             case ".xlsx":
                 wb = xw.Book(self.path)
@@ -66,6 +69,7 @@ class raw_data:
             case ".csv":
                 self.df = pd.read_csv(self.path)
 
+        # Recursive grouping over the list given
         if groupby != None:
             self.groups = self.group(groupby=groupby, df=self.df)
 
@@ -146,7 +150,7 @@ class metadata:
 
         self.metadata = pd.DataFrame(columns=columns)
 
-    def set_spec_limit(self, spec: str, usl: float, lsl: float, **kwargs) -> None:
+    def set_spec_limit(self, spec: str, usl: float, lsl: float, **kwargs):
         """
         This function sets the spec limits on a specific spec. Can also add grade code and product if needed
 
@@ -209,12 +213,17 @@ class metadata:
         match export_type:
             case "xlsx":
                 wb = xw.Book()
+
+                # Create new sheet for each product
                 for key in self.raw_data.groups.keys():
                     wb.sheets.add(key)
                     sheet = wb.sheets[key]
                     sheet.activate()
                     j = 0
+
+                    # group all grades together but don't paste over them
                     for grade in self.raw_data.groups[key].keys():
+                        # Is this the first pass through?
                         if j == 0:
                             sheet.range("A1").select()
                             sheet["A1"].value = self.raw_data.groups[key][grade]
@@ -224,6 +233,7 @@ class metadata:
                                 header=False
                             ).value = self.raw_data.groups[key][grade]
 
+                # save in working directory
                 path = os.path.join(os.getcwd(), "_raw_data.xlsx")
 
                 wb.save(path=path)
@@ -233,6 +243,7 @@ class metadata:
                     sheet = meta_wb.sheet[meta_wb.sheet_names[0]]
                     sheet.range("A1").value = self.metadata
 
+                    # save in working directory
                     path = os.path.join(os.getcwd(), "_metadata.xlsx")
                     meta_wb.save(path)
 
@@ -261,6 +272,7 @@ class metadata:
                 & (self.metadata["Product"] == product)
             ] = p_val
 
+        # Add shapiro-wilk column if it does not exist
         except IndexError:
             self.create_new_metadata("shapiro-wilk")
             self.metadata["shapiro-wilk"].loc[
