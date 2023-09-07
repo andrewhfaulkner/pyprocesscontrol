@@ -247,7 +247,7 @@ class metadata:
                     path = os.path.join(os.getcwd(), "_metadata.xlsx")
                     meta_wb.save(path)
 
-    def __metadata_apply_shapiro(self, func, **kwargs):
+    def __metadata_apply(self, func, **kwargs):
         """
         The purpose of this function is to apply calculations to rows of data and pass them into the metadata dataframe. This will make custom calculations possible for metadata
 
@@ -262,23 +262,39 @@ class metadata:
         if self.raw_data.groups != None:
             data = self.raw_data.groups[grade][grade, product]
 
-            if isinstance(data, pd.Series):
-                p_val = statistics.shapiro_wilk(data)
+        match func:
+            case "shapiro-wilk":
+                if isinstance(data, pd.Series):
+                    p_val = statistics.shapiro_wilk(data)
 
-        # Does shapiro-wilk exist
-        try:
-            self.metadata["shapiro-wilk"].loc[
-                (self.metadata["Grade"] == grade)
-                & (self.metadata["Product"] == product)
-            ] = p_val
+                # Does shapiro-wilk exist
+                try:
+                    self.metadata["shapiro-wilk"].loc[
+                        (self.metadata["Grade"] == grade)
+                        & (self.metadata["Product"] == product)
+                    ] = p_val
 
-        # Add shapiro-wilk column if it does not exist
-        except IndexError:
-            self.create_new_metadata("shapiro-wilk")
-            self.metadata["shapiro-wilk"].loc[
-                (self.metadata["Grade"] == grade)
-                & (self.metadata["Product"] == product)
-            ] = p_val
+                # Add shapiro-wilk column if it does not exist
+                except IndexError:
+                    self.create_new_metadata("shapiro-wilk")
+                    self.metadata["shapiro-wilk"].loc[
+                        (self.metadata["Grade"] == grade)
+                        & (self.metadata["Product"] == product)
+                    ] = p_val
+
+            case "cpk":
+                if isinstance(data, pd.Series):
+                    cpk = statistics.cpk(data)
+                    
+
+            case "cp":
+                pass
+
+            case "pp":
+                pass
+
+            case "ppk":
+                pass
 
 
 class data_structure:
