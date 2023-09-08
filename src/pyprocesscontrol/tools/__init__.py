@@ -1,3 +1,3 @@
 from . import datastructures
 
-__all__ = ["tools.datastructures"]
+__all__ = ["datastructures"]
