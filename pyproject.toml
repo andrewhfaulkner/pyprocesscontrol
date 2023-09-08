@@ -1,5 +1,14 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = [
+  "setuptools>=61.0",
+  "pandas",
+  "xlwings",
+  "numpy",
+  "scipy",
+  "matplotlib",
+  "bokeh",
+  "sqlalchemy"
+  ]
 build-backend = "setuptools.build_meta"
 
 [project]
