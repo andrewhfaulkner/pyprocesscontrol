@@ -1,5 +1,6 @@
 # This script is to deal with and arrange data
 
+import numpy as np
 import os.path as path
 import os
 import pandas as pd
@@ -165,19 +166,27 @@ class metadata:
 
         try:
             if (
-                self.metadata[
-                    self.metadata[("Product" == product) & ("Grade" == grade)]
-                ]
+                self.metadata["Product"].loc[
+                    (self.metadata["Product"] == product)
+                    & (self.metadata["Grade"] == grade)
+                ][0]
                 != None
             ):
-                usl_ck = self.metadata[
-                    self.metadata[("Product" == product) & ("Grade" == grade)]
-                ]["USL"]
+                self.metadata["USL"].loc[
+                    (self.metadata["Product"] == product)
+                    & (self.metadata["Grade"] == grade)
+                ] = usl
 
-                lsl_ck = self.metadata[
-                    self.metadata[("Product" == product) & ("Grade" == grade)]
-                ]["LSL"]
+                self.metadata["LSL"].loc[
+                    (self.metadata["Product"] == product)
+                    & (self.metadata["Grade"] == grade)
+                ] = lsl
         except KeyError:
+            try:
+                data = self.raw_data.groups[product][product, grade][spec]
+            except Exception:
+                raise
+
             pd_dict = {
                 "Product": product,
                 "Grade": grade,
@@ -188,21 +197,59 @@ class metadata:
 
             self.metadata.loc[len(self.metadata.index)] = pd_dict
 
-    def create_new_metadata(self, func: str, data_col: str):
+    def create_new_metadata(self, func: str):
         """
         This function adds new metadata from a specified list to the table for tracking in specs
         """
 
         match func:
             case "shapiro-wilk":
-                for index, data in self.metadata["Grade"].iterrows():
-                    self.__metadata_apply_shapiro(
-                        "fjjsa;lfk", product=data["Product"], grade=data["Grade"]
+                for index, data in self.metadata.iterrows():
+                    self.__metadata_apply(
+                        func,
+                        product=data["Product"],
+                        grade=data["Grade"],
+                        spec=data["Spec"],
+                    )
+            case "cpk":
+                for index, data in self.metadata.iterrows():
+                    self.__metadata_apply(
+                        func,
+                        product=data["Product"],
+                        grade=data["Grade"],
+                        spec=data["Spec"],
+                    )
+            case "ppk":
+                for index, data in self.metadata.iterrows():
+                    self.__metadata_apply(
+                        func,
+                        product=data["Product"],
+                        grade=data["Grade"],
+                        spec=data["Spec"],
+                    )
+            case "cp":
+                for index, data in self.metadata.iterrows():
+                    self.__metadata_apply(
+                        func,
+                        product=data["Product"],
+                        grade=data["Grade"],
+                        spec=data["Spec"],
+                    )
+            case "pp":
+                for index, data in self.metadata.iterrows():
+                    self.__metadata_apply(
+                        func,
+                        product=data["Product"],
+                        grade=data["Grade"],
+                        spec=data["Spec"],
                     )
 
-        self.metadata[data_col] = None
-
-    def save_data(self, export_type: str = "xlsx", save_metadata: bool = True):
+    def save_data(
+        self,
+        export_type: str = "xlsx",
+        save_metadata: bool = True,
+        save_rawdata: bool = True,
+    ):
         """
         This function exports the broken down raw data and meta data into documents and saves them.
 
@@ -212,40 +259,63 @@ class metadata:
 
         match export_type:
             case "xlsx":
-                wb = xw.Book()
+                if save_rawdata == True:
+                    path = os.path.join(os.getcwd(), "_raw_data.xlsx")
+                    try:
+                        wb = xw.Book(path)
+                    except:
+                        wb = xw.Book()
 
-                # Create new sheet for each product
-                for key in self.raw_data.groups.keys():
-                    wb.sheets.add(key)
-                    sheet = wb.sheets[key]
-                    sheet.activate()
-                    j = 0
+                    # Create new sheet for each product
+                    for key in self.raw_data.groups.keys():
+                        wb.sheets.add(key)
+                        sheet = wb.sheets[key]
+                        sheet.activate()
+                        j = 0
 
-                    # group all grades together but don't paste over them
-                    for grade in self.raw_data.groups[key].keys():
-                        # Is this the first pass through?
-                        if j == 0:
-                            sheet.range("A1").select()
-                            sheet["A1"].value = self.raw_data.groups[key][grade]
-                            j = 1
-                        else:
-                            sheet.range("A1").end("down").options(
-                                header=False
-                            ).value = self.raw_data.groups[key][grade]
+                        # group all grades together but don't paste over them
+                        for grade in self.raw_data.groups[key].keys():
+                            # Is this the first pass through?
+                            if j == 0:
+                                sheet.range("A1").select()
+                                sheet["A1"].value = self.raw_data.groups[key][grade]
+                                j = 1
+                            else:
+                                sheet.range("A1").end("down").options(
+                                    header=False
+                                ).value = self.raw_data.groups[key][grade]
 
-                # save in working directory
-                path = os.path.join(os.getcwd(), "_raw_data.xlsx")
+                    # save in working directory
+                    path = os.path.join(os.getcwd(), "_raw_data.xlsx")
 
-                wb.save(path=path)
+                    wb.save(path=path)
 
                 if save_metadata == True:
-                    meta_wb = xw.Book()
-                    sheet = meta_wb.sheet[meta_wb.sheet_names[0]]
+                    path = os.path.join(os.getcwd(), "_raw_data.xlsx")
+                    try:
+                        meta_wb = xw.Book(path)
+                    except:
+                        meta_wb = xw.Book()
+
+                    sheet = meta_wb.sheets[meta_wb.sheet_names[0]]
                     sheet.range("A1").value = self.metadata
 
                     # save in working directory
-                    path = os.path.join(os.getcwd(), "_metadata.xlsx")
                     meta_wb.save(path)
+
+    def load_data(self):
+        """
+        This function manages the loading of the _raw_data and _metadata files if they exist.
+
+        Args:
+            None
+
+        Returns:
+            None
+
+        """
+
+        pass
 
     def __metadata_apply(self, func, **kwargs):
         """
@@ -258,9 +328,10 @@ class metadata:
 
         grade: str = kwargs.get("grade", None)
         product: str = kwargs.get("product", None)
+        spec: str = kwargs.get("spec", None)
 
         if self.raw_data.groups != None:
-            data = self.raw_data.groups[grade][grade, product]
+            data = self.raw_data.groups[product][product, grade][spec]
 
         match func:
             case "shapiro-wilk":
@@ -275,8 +346,8 @@ class metadata:
                     ] = p_val
 
                 # Add shapiro-wilk column if it does not exist
-                except IndexError:
-                    self.create_new_metadata("shapiro-wilk")
+                except KeyError:
+                    self.metadata["shapiro-wilk"] = np.empty(len(self.metadata.index))
                     self.metadata["shapiro-wilk"].loc[
                         (self.metadata["Grade"] == grade)
                         & (self.metadata["Product"] == product)
@@ -284,17 +355,119 @@ class metadata:
 
             case "cpk":
                 if isinstance(data, pd.Series):
-                    cpk = statistics.cpk(data)
-                    
+                    cpk = statistics.cpk(
+                        data,
+                        usl=self.metadata["USL"].loc[
+                            (self.metadata["Grade"] == grade)
+                            & (self.metadata["Product"] == product)
+                        ],
+                        lsl=self.metadata["LSL"].loc[
+                            (self.metadata["Grade"] == grade)
+                            & (self.metadata["Product"] == product)
+                        ],
+                    )
+
+                # does cpk already exist
+                try:
+                    self.metadata["cpk"].loc[
+                        (self.metadata["Grade"] == grade)
+                        & (self.metadata["Product"] == product)
+                    ] = cpk
+
+                # Add cpk column if it does not exist
+                except KeyError:
+                    self.metadata["cpk"] = np.empty(len(self.metadata.index))
+                    self.metadata["cpk"].loc[
+                        (self.metadata["Grade"] == grade)
+                        & (self.metadata["Product"] == product)
+                    ] = cpk
 
             case "cp":
-                pass
+                if isinstance(data, pd.Series):
+                    cp = statistics.cp(
+                        data,
+                        usl=self.metadata["USL"].loc[
+                            (self.metadata["Grade"] == grade)
+                            & (self.metadata["Product"] == product)
+                        ],
+                        lsl=self.metadata["LSL"].loc[
+                            (self.metadata["Grade"] == grade)
+                            & (self.metadata["Product"] == product)
+                        ],
+                    )
+
+                # does cp already exist
+                try:
+                    self.metadata["cp"].loc[
+                        (self.metadata["Grade"] == grade)
+                        & (self.metadata["Product"] == product)
+                    ] = cp
+
+                # Add cp column if it does not exist
+                except KeyError:
+                    self.metadata["cp"] = np.empty(len(self.metadata.index))
+                    self.metadata["cp"].loc[
+                        (self.metadata["Grade"] == grade)
+                        & (self.metadata["Product"] == product)
+                    ] = cp
 
             case "pp":
-                pass
+                if isinstance(data, pd.Series):
+                    pp = statistics.pp(
+                        data,
+                        usl=self.metadata["USL"].loc[
+                            (self.metadata["Grade"] == grade)
+                            & (self.metadata["Product"] == product)
+                        ],
+                        lsl=self.metadata["LSL"].loc[
+                            (self.metadata["Grade"] == grade)
+                            & (self.metadata["Product"] == product)
+                        ],
+                    )
+
+                # does pp already exist
+                try:
+                    self.metadata["pp"].loc[
+                        (self.metadata["Grade"] == grade)
+                        & (self.metadata["Product"] == product)
+                    ] = pp
+
+                # Add pp column if it does not exist
+                except KeyError:
+                    self.metadata["pp"] = np.empty(len(self.metadata.index))
+                    self.metadata["pp"].loc[
+                        (self.metadata["Grade"] == grade)
+                        & (self.metadata["Product"] == product)
+                    ] = pp
 
             case "ppk":
-                pass
+                if isinstance(data, pd.Series):
+                    ppk = statistics.ppk(
+                        data,
+                        usl=self.metadata["USL"].loc[
+                            (self.metadata["Grade"] == grade)
+                            & (self.metadata["Product"] == product)
+                        ],
+                        lsl=self.metadata["LSL"].loc[
+                            (self.metadata["Grade"] == grade)
+                            & (self.metadata["Product"] == product)
+                        ],
+                    )
+
+                # does ppk already exist
+                try:
+                    self.metadata["ppk"].loc[
+                        (self.metadata["Grade"] == grade)
+                        & (self.metadata["Product"] == product)
+                    ] = ppk
+
+                # Add ppk column if it does not exist
+                except KeyError:
+                    self.metadata["ppk"] = np.empty(len(self.metadata.index))
+                    self.metadata["ppk"].loc[
+                        (self.metadata["Grade"] == grade)
+                        & (self.metadata["Product"] == product)
+                    ] = ppk
 
 
 class data_structure:
