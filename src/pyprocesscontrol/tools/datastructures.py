@@ -2,6 +2,7 @@
 
 import numpy as np
 import os.path as path
+from pathlib import Path
 import os
 import pandas as pd
 import sqlalchemy
@@ -30,7 +31,7 @@ class raw_data:
         self.sheetname: str | None = kwargs.get("sheetname", None)
         header: int = kwargs.get("header", 1)
         index: int = kwargs.get("index", 1)
-        groupby: list = kwargs.get("groupby", None)
+        self.groupby: list = kwargs.get("groupby", None)
         self.path = None
 
         # look for the filename in the working directory
@@ -45,7 +46,7 @@ class raw_data:
                 root.withdraw()
 
                 file_path = filedialog.askopenfile()
-                self.filename = file_path
+                self.path = Path(file_path.name)
             except:
                 raise ValueError("File could not be found")
 
@@ -57,6 +58,7 @@ class raw_data:
         match extension:
             case ".xlsx":
                 wb = xw.Book(self.path)
+                wb.activate()
                 sheet = wb.sheets(self.sheetname)
                 sheet.range("A1").select()
                 self.df = xw.load(header=header, index=index)
@@ -249,6 +251,8 @@ class metadata:
         export_type: str = "xlsx",
         save_metadata: bool = True,
         save_rawdata: bool = True,
+        create_file: bool = False,
+        append_data: bool = True,
     ):
         """
         This function exports the broken down raw data and meta data into documents and saves them.
@@ -256,6 +260,17 @@ class metadata:
         Args:
             export_type: how the data should be exported. Either xlsx or csv (future version can save database)
         """
+
+        cwd = os.getcwd()
+
+        if create_file == True:
+            path = os.path.join(os.getcwd(), "data_files")
+            try:
+                os.mkdir(path)
+            except FileExistsError:
+                pass
+
+            os.chdir(path)
 
         match export_type:
             case "xlsx":
@@ -268,22 +283,59 @@ class metadata:
 
                     # Create new sheet for each product
                     for key in self.raw_data.groups.keys():
-                        wb.sheets.add(key)
-                        sheet = wb.sheets[key]
-                        sheet.activate()
-                        j = 0
+                        try:
+                            wb.sheets.add(key)
+                            j = 0
+                            sheet = wb.sheets[key]
+                            sheet.activate()
+                        except:
+                            sheet = wb.sheets[key]
+                            sheet.activate()
+
+                        if append_data == True:
+                            sheet.range("A1").select()
+                            try:
+                                data = xw.load()
+                                sheet.clear()
+                                groupings = data.groupby("Grade Code")
+                                j = 0
+                            except:
+                                j = 0
 
                         # group all grades together but don't paste over them
-                        for grade in self.raw_data.groups[key].keys():
+                        for prod, grade in self.raw_data.groups[key].keys():
                             # Is this the first pass through?
                             if j == 0:
+                                add_data = self.raw_data.groups[key][(prod, grade)]
+                                try:
+                                    add_data = pd.concat(
+                                        [
+                                            groupings.get_group(grade),
+                                            self.raw_data.groups[key][(prod, grade)],
+                                        ]
+                                    )
+                                except:
+                                    pass
                                 sheet.range("A1").select()
-                                sheet["A1"].value = self.raw_data.groups[key][grade]
+                                sheet["A1"].value = self.raw_data.groups[key][
+                                    (prod, grade)
+                                ]
                                 j = 1
                             else:
+                                add_data = self.raw_data.groups[key][(prod, grade)]
+                                try:
+                                    add_data = pd.concat(
+                                        [
+                                            groupings.get_group(grade),
+                                            self.raw_data.groups[key][(prod, grade)],
+                                        ]
+                                    )
+                                except:
+                                    pass
+
                                 sheet.range("A1").end("down").options(
                                     header=False
-                                ).value = self.raw_data.groups[key][grade]
+                                ).value = add_data
 
                     # save in working directory
                     path = os.path.join(os.getcwd(), "_raw_data.xlsx")
@@ -291,17 +343,31 @@ class metadata:
                     wb.save(path=path)
 
                 if save_metadata == True:
-                    path = os.path.join(os.getcwd(), "_raw_data.xlsx")
+                    path = os.path.join(os.getcwd(), "_metadata.xlsx")
                     try:
                         meta_wb = xw.Book(path)
                     except:
                         meta_wb = xw.Book()
 
                     sheet = meta_wb.sheets[meta_wb.sheet_names[0]]
-                    sheet.range("A1").value = self.metadata
+                    sheet.range("A1").select()
+
+                    try:
+                        curr_metadata = xw.load()
+                        sheet.range("A1").value = pd.concat(
+                            [self.metadata, curr_metadata]
+                        )
+                    except:
+                        sheet.range("A1").value = self.metadata
 
                     # save in working directory
                     meta_wb.save(path)
+
+            case "sql":
+                # insert code to use sqlalchemy to store all of the data
+                pass
+
+        os.chdir(cwd)
 
     def load_data(self):
         """
@@ -314,8 +380,43 @@ class metadata:
             None
 
         """
+        return_dict = {}
 
-        pass
+        cwd = os.getcwd()
+
+        raw_data = "_raw_data.xlsx"
+        meta = "_metadata.xlsx"
+
+        if len(self.groupby) == 1:
+            groupby = self.groupby[0]
+
+        try:
+            os.chdir(os.path.join(os.getcwd(), "data_files"))
+        except:
+            pass
+
+        for root, dirs, files in os.walk(os.getcwd()):
+            if raw_data in files:
+                path = os.path.join(root, raw_data)
+                wb = xw.Book(path)
+                break
+
+        for root, dirs, files in os.walk(os.getcwd()):
+            if meta in files:
+                meta_path = os.path.join(root, meta)
+                meta_wb = xw.Book(meta_path)
+                break
+
+        os.chdir(cwd)
+
+        wb.activate()
+        for sheet in wb.sheet_names:
+            wb.sheets[sheet].range("A1").select()
+            data: pd.DataFrame = xw.load()
+            groups = data.groupby(groupby)
+            return_dict[sheet] = ((sheet, groups.keys()), groups)
+
+        self.raw_data = return_dict
 
     def __metadata_apply(self, func, **kwargs):
         """
@@ -474,8 +575,7 @@ class data_structure:
     """
     The purpose of this class is to break down the imported data into both
     product and grade code. Then, store the data in an easily accessable way
-    to return specific data quickly. This may evolve to include a database as well
-    if I feel like it needs it.
+    to return specific data quickly. This may evolve to include a database as well if I feel like it needs it.
     """
 
     def __init__(self, workbook: str):
