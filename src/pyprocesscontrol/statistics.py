@@ -27,6 +27,12 @@ def shapiro_wilk(data: pd.Series) -> float:
     except TypeError:
         data = pd.Series(data)
 
+    if data.isnull().values.all() == True:
+        return np.NaN
+    
+    if data.dtypes == object:
+        return np.NaN
+
     statsistic, p_val = stats.shapiro(data)
 
     return p_val
@@ -48,10 +54,16 @@ def cpk(data: pd.Series, lsl: float, usl: float) -> float:
     stats = data.describe()
     sig_st = std_st(data)
 
-    cupk = (usl - stats.loc["mean"]) / (3 * sig_st)
-    clpk = (stats.loc["mean"] - lsl) / (3 * sig_st)
+    if data.dtype == object:
+        return np.NaN
 
-    final = min(cupk[0], clpk[0])
+    if stats.loc['count'] == 0:
+        return np.NaN
+
+    cupk = (usl.values[0] - stats.loc["mean"]) / (3 * sig_st)
+    clpk = (stats.loc["mean"] - lsl.values[0]) / (3 * sig_st)
+
+    final = min(cupk, clpk)
     return final
 
 
@@ -137,6 +149,9 @@ def std_st(series: pd.Series) -> float:
     try:
         if isinstance(series, pd.Series) != True:
             raise TypeError
+        if series.dtype == object:
+            return np.NaN
+
     except TypeError as e:
         print(f"Expected type pandas series, not {type(series)}")
         raise
