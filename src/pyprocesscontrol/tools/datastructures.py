@@ -73,8 +73,8 @@ class raw_data:
                 self.df = pd.read_csv(self.path)
 
         # Recursive grouping over the list given
-        if groupby != None:
-            self.groups = self.group(groupby=groupby, df=self.df)
+        if self.groupby != None:
+            self.groups = self.group(groupby=self.groupby, df=self.df)
 
     def group(self, groupby: list, df: pd.DataFrame) -> dict:
         """
@@ -139,7 +139,7 @@ class metadata:
     def __init__(self, filename, **kwargs):
         self.header: int = kwargs.get("header", 1)
         self.index: int = kwargs.get("index", 1)
-        groupby: list = kwargs.get("groupby", None)
+        self.groupby: list = kwargs.get("groupby", None)
         self.sheetname: str | None = kwargs.get("sheetname", None)
 
         self.raw_data = raw_data(
@@ -147,7 +147,7 @@ class metadata:
             sheetname=self.sheetname,
             header=self.header,
             index=self.index,
-            groupby=groupby,
+            groupby=self.groupby,
         )
         columns = ["Product", "Grade", "Spec", "USL", "LSL", "UCL", "LCL"]
 
@@ -231,6 +231,9 @@ class metadata:
                     )
             case "cp":
                 for index, data in self.metadata.iterrows():
+                    if index == 53:
+                        pass
+
                     self.__metadata_apply(
                         func,
                         product=data["Product"],
@@ -281,16 +284,18 @@ class metadata:
                     except:
                         wb = xw.Book()
 
+                    # os.chdir(cwd)
+
                     # Create new sheet for each product
                     for key in self.raw_data.groups.keys():
                         try:
                             wb.sheets.add(key)
                             j = 0
                             sheet = wb.sheets[key]
-                            sheet.activate()
                         except:
                             sheet = wb.sheets[key]
-                            sheet.activate()
+
+                        sheet.activate()
 
                         if append_data == True:
                             sheet.range("A1").select()
@@ -301,33 +306,44 @@ class metadata:
                                 j = 0
                             except:
                                 j = 0
+                                groupings = self.raw_data.df[
+                                    self.raw_data.df[self.groupby[0]] == key
+                                ].groupby(self.groupby[1])
+                                sheet.range("A1").select()
 
                         # group all grades together but don't paste over them
-                        for prod, grade in self.raw_data.groups[key].keys():
+                        for grade in groupings.groups.keys():
                             # Is this the first pass through?
                             if j == 0:
-                                add_data = self.raw_data.groups[key][(prod, grade)]
                                 try:
+                                    add_data = self.raw_data.groups[key][(key, grade)]
+                                    add_data.index = pd.to_datetime(add_data.index)
+                                    temp_df = groupings.get_group(grade)
+                                    temp_df = temp_df[
+                                        ~temp_df.index.isin(add_data.index)
+                                    ]
                                     add_data = pd.concat(
                                         [
-                                            groupings.get_group(grade),
-                                            self.raw_data.groups[key][(prod, grade)],
+                                            self.raw_data.groups[key][(key, grade)],
+                                            temp_df,
                                         ]
                                     )
                                 except:
                                     pass
                                 sheet.range("A1").select()
-                                sheet["A1"].value = self.raw_data.groups[key][
-                                    (prod, grade)
-                                ]
+                                sheet["A1"].value = add_data
                                 j = 1
                             else:
-                                add_data = self.raw_data.groups[key][(prod, grade)]
                                 try:
+                                    add_data = self.raw_data.groups[key][(key, grade)]
+                                    temp_df = groupings.get_group(grade)
+                                    temp_df = temp_df[
+                                        ~temp_df.index.isin(add_data.index)
+                                    ]
                                     add_data = pd.concat(
                                         [
-                                            groupings.get_group(grade),
-                                            self.raw_data.groups[key][(prod, grade)],
+                                            self.raw_data.groups[key][(key, grade)],
+                                            temp_df,
                                         ]
                                     )
                                 except:
@@ -349,11 +365,15 @@ class metadata:
                     except:
                         meta_wb = xw.Book()
 
+                    meta_wb.activate()
                     sheet = meta_wb.sheets[meta_wb.sheet_names[0]]
                     sheet.range("A1").select()
 
                     try:
-                        curr_metadata = xw.load()
+                        curr_metadata = xw.load(index=1, header=1)
+                        curr_metadata = curr_metadata[
+                            ~curr_metadata.index.isin(self.metadata.index)
+                        ]
                         sheet.range("A1").value = pd.concat(
                             [self.metadata, curr_metadata]
                         )
@@ -381,11 +401,16 @@ class metadata:
 
         """
         return_dict = {}
+        temp_dict = {}
+
+        wb = None
+        meta_wb = None
 
         cwd = os.getcwd()
 
         raw_data = "_raw_data.xlsx"
         meta = "_metadata.xlsx"
+        groupby = self.groupby
 
         if len(self.groupby) == 1:
             groupby = self.groupby[0]
@@ -409,14 +434,47 @@ class metadata:
 
         os.chdir(cwd)
 
+        self.__load_raw_data(wb)
+        self.__load_metadata(meta_wb=meta_wb)
+
+    def __load_raw_data(self, wb: xw.Book):
+        groupby = self.groupby
+        temp_dict = {}
+        return_dict = {}
+
+        if wb == None:
+            return
+
         wb.activate()
         for sheet in wb.sheet_names:
+            wb.sheets[sheet].activate()
             wb.sheets[sheet].range("A1").select()
             data: pd.DataFrame = xw.load()
             groups = data.groupby(groupby)
-            return_dict[sheet] = ((sheet, groups.keys()), groups)
+            temp_dict = {}
+            for keys in groups.groups.keys():
+                df_raw_data = self.raw_data.groups[sheet][keys].copy()
+                temp_df = groups.get_group(keys)
+                indexes = temp_df[~temp_df.index.isin(df_raw_data.index)]
+                temp_dict[keys] = pd.concat(
+                    [df_raw_data, temp_df.loc[indexes.index]]
+                ).copy()
 
-        self.raw_data = return_dict
+            return_dict[sheet] = temp_dict
+
+        self.raw_data.groups = return_dict
+
+    def __load_metadata(self, meta_wb: xw.Book):
+        if meta_wb == None:
+            return
+
+        meta_wb.activate()
+        sheets = meta_wb.sheets[meta_wb.sheet_names[0]]
+        sheets.activate()
+        sheets.range("A1").select()
+        meta_data = xw.load()
+
+        self.metadata = meta_data
 
     def __metadata_apply(self, func, **kwargs):
         """
@@ -444,6 +502,7 @@ class metadata:
                     self.metadata["shapiro-wilk"].loc[
                         (self.metadata["Grade"] == grade)
                         & (self.metadata["Product"] == product)
+                        & (self.metadata["Spec"] == spec)
                     ] = p_val
 
                 # Add shapiro-wilk column if it does not exist
@@ -452,6 +511,7 @@ class metadata:
                     self.metadata["shapiro-wilk"].loc[
                         (self.metadata["Grade"] == grade)
                         & (self.metadata["Product"] == product)
+                        & (self.metadata["Spec"] == spec)
                     ] = p_val
 
             case "cpk":
@@ -461,10 +521,12 @@ class metadata:
                         usl=self.metadata["USL"].loc[
                             (self.metadata["Grade"] == grade)
                             & (self.metadata["Product"] == product)
+                            & (self.metadata["Spec"] == spec)
                         ],
                         lsl=self.metadata["LSL"].loc[
                             (self.metadata["Grade"] == grade)
                             & (self.metadata["Product"] == product)
+                            & (self.metadata["Spec"] == spec)
                         ],
                     )
 
@@ -473,6 +535,7 @@ class metadata:
                     self.metadata["cpk"].loc[
                         (self.metadata["Grade"] == grade)
                         & (self.metadata["Product"] == product)
+                        & (self.metadata["Spec"] == spec)
                     ] = cpk
 
                 # Add cpk column if it does not exist
@@ -481,6 +544,7 @@ class metadata:
                     self.metadata["cpk"].loc[
                         (self.metadata["Grade"] == grade)
                         & (self.metadata["Product"] == product)
+                        & (self.metadata["Spec"] == spec)
                     ] = cpk
 
             case "cp":
@@ -490,10 +554,12 @@ class metadata:
                         usl=self.metadata["USL"].loc[
                             (self.metadata["Grade"] == grade)
                             & (self.metadata["Product"] == product)
+                            & (self.metadata["Spec"] == spec)
                         ],
                         lsl=self.metadata["LSL"].loc[
                             (self.metadata["Grade"] == grade)
                             & (self.metadata["Product"] == product)
+                            & (self.metadata["Spec"] == spec)
                         ],
                     )
 
@@ -502,6 +568,7 @@ class metadata:
                     self.metadata["cp"].loc[
                         (self.metadata["Grade"] == grade)
                         & (self.metadata["Product"] == product)
+                        & (self.metadata["Spec"] == spec)
                     ] = cp
 
                 # Add cp column if it does not exist
@@ -510,6 +577,7 @@ class metadata:
                     self.metadata["cp"].loc[
                         (self.metadata["Grade"] == grade)
                         & (self.metadata["Product"] == product)
+                        & (self.metadata["Spec"] == spec)
                     ] = cp
 
             case "pp":
@@ -519,10 +587,12 @@ class metadata:
                         usl=self.metadata["USL"].loc[
                             (self.metadata["Grade"] == grade)
                             & (self.metadata["Product"] == product)
+                            & (self.metadata["Spec"] == spec)
                         ],
                         lsl=self.metadata["LSL"].loc[
                             (self.metadata["Grade"] == grade)
                             & (self.metadata["Product"] == product)
+                            & (self.metadata["Spec"] == spec)
                         ],
                     )
 
@@ -531,6 +601,7 @@ class metadata:
                     self.metadata["pp"].loc[
                         (self.metadata["Grade"] == grade)
                         & (self.metadata["Product"] == product)
+                        & (self.metadata["Spec"] == spec)
                     ] = pp
 
                 # Add pp column if it does not exist
@@ -539,6 +610,7 @@ class metadata:
                     self.metadata["pp"].loc[
                         (self.metadata["Grade"] == grade)
                         & (self.metadata["Product"] == product)
+                        & (self.metadata["Spec"] == spec)
                     ] = pp
 
             case "ppk":
@@ -548,10 +620,12 @@ class metadata:
                         usl=self.metadata["USL"].loc[
                             (self.metadata["Grade"] == grade)
                             & (self.metadata["Product"] == product)
+                            & (self.metadata["Spec"] == spec)
                         ],
                         lsl=self.metadata["LSL"].loc[
                             (self.metadata["Grade"] == grade)
                             & (self.metadata["Product"] == product)
+                            & (self.metadata["Spec"] == spec)
                         ],
                     )
 
@@ -560,6 +634,7 @@ class metadata:
                     self.metadata["ppk"].loc[
                         (self.metadata["Grade"] == grade)
                         & (self.metadata["Product"] == product)
+                        & (self.metadata["Spec"] == spec)
                     ] = ppk
 
                 # Add ppk column if it does not exist
@@ -568,6 +643,7 @@ class metadata:
                     self.metadata["ppk"].loc[
                         (self.metadata["Grade"] == grade)
                         & (self.metadata["Product"] == product)
+                        & (self.metadata["Spec"] == spec)
                     ] = ppk
 
 

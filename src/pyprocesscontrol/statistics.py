@@ -35,7 +35,7 @@ def shapiro_wilk(data: pd.Series) -> float:
 
     statsistic, p_val = stats.shapiro(data)
 
-    return p_val
+    return round(p_val, 2)
 
 
 def cpk(data: pd.Series, lsl: float, usl: float) -> float:
@@ -100,10 +100,16 @@ def ppk(data: pd.Series, lsl: float, usl: float) -> float:
         floating point representing the process capability of the system
     """
 
+    if data.dtype == object:
+        return np.NaN
+
     stats = data.describe()
 
-    pupk = (usl - stats.loc["mean"]) / (3 * stats.loc["std"])
-    plpk = (stats.loc["mean"] - lsl) / (3 * stats.loc["std"])
+    if stats.loc['count'] == 0:
+        return np.NaN
+
+    pupk = (usl.values[0] - stats.loc["mean"]) / (3 * stats.loc["std"])
+    plpk = (stats.loc["mean"] - lsl.values[0]) / (3 * stats.loc["std"])
 
     final = min(pupk, plpk)
     return final
@@ -129,6 +135,14 @@ def pp(data: pd.Series, lsl: float, usl: float) -> float:
         raise TypeError
 
     stats = data.describe()
+
+    if stats.loc["count"] == 0:
+        return np.NaN
+
+    try:
+        std = stats.loc["std"]
+    except KeyError:
+        return np.NaN
 
     calc_pp = float((usl - lsl) / (6 * stats.loc["std"]))
     return calc_pp
