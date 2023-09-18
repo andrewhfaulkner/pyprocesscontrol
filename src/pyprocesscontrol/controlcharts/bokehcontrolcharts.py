@@ -6,7 +6,18 @@ from bokeh.layouts import column as bk_column
 from bokeh.layouts import gridplot as gp
 from bokeh.layouts import layout
 from bokeh.plotting import figure, show, output_file, save
-from bokeh.models import Span, BoxAnnotation, LabelSet, Label, Div, HoverTool
+from bokeh.models import (
+    Span,
+    BoxAnnotation,
+    LabelSet,
+    Label,
+    Div,
+    HoverTool,
+    Band,
+    ColumnDataSource,
+)
+import datetime
+from operator import add
 import pandas as pd
 import numpy as np
 import math
@@ -16,9 +27,7 @@ from pyprocesscontrol import tools
 
 
 def plot_control_charts(
-    data: tools.datastructures.metadata,
-    index: str,
-    product: str = None,
+    data: tools.datastructures.metadata, index: str, product: str = None, **kwargs
 ):
     """
     This function will plot the control charts for a product in the metadata or raw_data classes
@@ -26,16 +35,19 @@ def plot_control_charts(
     Args:
         data: the metadata or rawdata class containg all the data
         index: String column name for the index of the data
+        product: The product to perform the analysis on
 
     Returns:
         None
     """
 
+    phased = kwargs.get("phase", None)
+
     for group in data.raw_data.groups[product]:
         if type(data) == tools.datastructures.metadata:
             include_columns = data.metadata[
-                (data.metadata["Product"] == product) & (data.metadata["Grade"]
-                == group[1])
+                (data.metadata["Product"] == product)
+                & (data.metadata["Grade"] == group[1])
             ]["Spec"]
 
             usl_dict = {}
@@ -50,15 +62,27 @@ def plot_control_charts(
 
         fname = str(group)
 
-        basic_control_chart(
-            data=data.raw_data.groups[product][group],
-            index=index,
-            datetime_index=True,
-            include_cols=include_columns,
-            filename = fname,
-            usl = usl_dict,
-            lsl = lsl_dict
-        )
+        if phased is None:
+            basic_control_chart(
+                data=data.raw_data.groups[product][group],
+                index=index,
+                datetime_index=True,
+                include_cols=include_columns,
+                filename=fname,
+                usl=usl_dict,
+                lsl=lsl_dict,
+            )
+        if phased is not None:
+            time_phase_control_chart(
+                data=data.raw_data.groups[product][group],
+                index=index,
+                datetime_index=True,
+                include_cols=include_columns,
+                filename=fname,
+                usl=usl_dict,
+                lsl=lsl_dict,
+                phase=phased,
+            )
 
 
 def basic_control_chart(
@@ -635,18 +659,285 @@ def histogram_builder(
 
     ax.line(x_axis, pdf, line_width=2, line_dash="dashed", line_color="black")
 
-    # ax.axvline(lower_spec, color = 'r')
-    # ax.axvline(upper_spec, color = 'r')
-    # ax.vline(avg, line_color="#82F85F")
 
-    # if upper_spec > max:
-    # upper_rng = upper_spec
-    # else:
-    # upper_rng = max
+def time_phase_control_chart(
+    data: pd.DataFrame | pd.Series,
+    index: str,
+    phase: datetime.timedelta | str,
+    datetime_index: bool = False,
+    include_cols: list = None,
+    exclude_cols: list = None,
+    filename: str = None,
+    grouped: bool = False,
+    usl=None,
+    lsl=None,
+):
+    """
+    This function plots a control chart with time based phases.
 
-    # if lower_spec < min:
-    # lower_rng = lower_spec
-    # else:
-    # lower_rng = min
+    Args:
+        data: The data to plot a control chart for
+        index: The index on the data
+        phase: The time-based phases to plot the data against. Typically monthly, daily, yearly, bi-annual, etc. is appropriate to use for the phases in the control chart.
+        datetime_index: boolean value if the index is a datetime
+        include_cols: a list of columns to include
+        exclude_cols: a list of columns to exclude
+        filename: The filename to save the control chart under
+        grouped: A logical grouping to apply to the data. Typically samples done in the same minute, hour, or day are appropriate methods of grouping samples together.
+        usl = Dictionary of upper spec limits to plot on the histogram
+        lsl = Dictionary of lower spec limits to plot on the histogram
 
-    # ax.set_xlim((lower_rng-range/100, upper_rng+range/100))
+    Returns:
+        None
+    """
+
+    fig_list = []
+
+    if isinstance(phase, str):
+        num_phase = int(phase[0])
+        dur_phase = phase[1]
+
+        match dur_phase:
+            case "d":
+                t_delta = datetime.timedelta(days=num_phase)
+            case "m":
+                t_delta = datetime.timedelta(days=30 * num_phase)
+            case "y":
+                t_delta = datetime.timedelta(days=365.25 * num_phase)
+            case _:
+                raise ValueError("not an appropriate time delta")
+
+    if isinstance(phase, datetime.timedelta):
+        t_delta = phase
+
+    if index != None:
+        if data.index.name == index:
+            pass
+        else:
+            try:
+                data = data.set_index(index)
+            except:
+                pass
+
+    if datetime_index:
+        data.index = pd.to_datetime(data.index)
+
+    if exclude_cols != None:
+        col_names = col_names.drop(exclude_cols)
+
+    if (include_cols is not None) and (include_cols.empty == False):
+        col_names = include_cols
+    else:
+        col_names = data.columns
+
+    data = data[col_names]
+    j = 0
+    for column in data.columns:
+        num = 1
+        all_columns = list(data.columns)
+        if j == 0:
+            lst = [column]
+            j = 1
+            continue
+
+        temp_col = column
+        while column in lst:
+            column = temp_col + "_" + str(num)
+
+            if column in lst:
+                num += 1
+
+        lst.append(column)
+
+    data.columns = lst
+    col_names = data.columns
+
+    # Clean up the data in the data set to only process columns with data
+    count = data[col_names].count()
+
+    drop_cols = count[count == 0]
+    data = data.drop(drop_cols.index, axis=1)
+
+    for column in data.columns:
+        series = pd.to_numeric(data[column], errors="coerce")
+        data[column] = series
+        if data[column].isnull().all():
+            data = data.drop(column, axis=1)
+
+    if data.isnull().values.all() == True:
+        return
+
+    col_names = data.columns
+    data = data.sort_index(axis=0, ascending=True)
+
+    col_names = np.array(col_names)
+
+    output_file(filename=filename + ".html", title="Phased " + filename)
+
+    # Plot the data in each column
+    for column in col_names:
+        title_str = "Phased I and MR for "
+
+        d = Div(
+            text=title_str + column,
+            styles={"text-align": "center", "font-size": "16pt"},
+        )
+
+        tooltips = [
+            ("Date", "$snap_x{%m/%d/%y}"),
+            ("Value", "$snap_y{0.00}"),
+        ]
+
+        p = figure(
+            sizing_mode="stretch_width",
+            height=150,
+            width=300,
+            x_axis_type="datetime",
+            min_border=0,
+            x_axis_location=None,
+            # title = title_str + column,
+            tools="xpan,xwheel_zoom",
+        )
+
+        r = figure(
+            sizing_mode="stretch_width",
+            height=150,
+            width=300,
+            x_axis_type="datetime",
+            x_range=p.x_range,
+        )
+
+        h = figure(sizing_mode="stretch_height", width=300, height=300)
+
+        first_date = data[column].index[0]
+        last_date = data[column].index[-1]
+        span = last_date - first_date
+        num_phases = span / t_delta
+        x_list = np.empty(math.ceil(num_phases) + 1)
+        x_list = x_list.astype(pd.Timestamp)
+        y_list = np.empty(math.ceil(num_phases) + 1)
+        upper_control_list = np.empty(math.ceil(num_phases) + 1)
+        lower_control_list = np.empty(math.ceil(num_phases) + 1)
+        r_upper_control_list = np.empty(math.ceil(num_phases) + 1)
+        r_bar_list = np.empty(math.ceil(num_phases) + 1)
+        std_list = np.empty(math.ceil(num_phases) + 1)
+        start_date = first_date
+
+        for phase in range(0, math.ceil(num_phases)):
+            stop_date = start_date + t_delta
+            phase_data = data[(data.index > start_date) & (data.index <= stop_date)]
+
+            phase_stats = phase_data[column].describe()
+            x_list[phase] = start_date
+            y_list[phase] = phase_stats.loc["mean"]
+            p.line(phase_data[column].index, phase_data[column])
+
+            df = phase_data[column]
+            dropped = df[:-1]
+            shifted = df[1:]
+            rng = abs(dropped - shifted.values)
+            upper_control = phase_stats.loc["mean"] + 3 * phase_stats.loc["std"]
+            lower_control = phase_stats.loc["mean"] - 3 * phase_stats.loc["std"]
+            r_upper_control = rng.mean() * 3.267
+            r_lower_control = rng.mean() * 3.267
+            r_bar = rng.mean()
+
+            upper_control_list[phase] = upper_control
+            lower_control_list[phase] = lower_control
+            r_upper_control_list[phase] = r_upper_control
+            r_bar_list[phase] = r_bar
+            std_list[phase] = phase_stats.loc["std"]
+
+            r.line(rng.index, rng)
+
+            ooc_checker(data=phase_data[column], ax=p)
+
+            start_date = stop_date
+
+        x_list[-1] = phase_data.index[-2]
+        y_list[-1] = phase_stats.loc["mean"]
+        upper_control_list[-1] = upper_control_list[-2]
+        lower_control_list[-1] = lower_control_list[-2]
+        r_upper_control_list[-1] = r_upper_control_list[-2]
+        r_bar_list[-1] = r_bar_list[-2]
+        std_list[-1] = phase_stats.loc["std"]
+
+        pd_dict = {
+            "x": x_list,
+            "y": y_list,
+            "upper_control": upper_control_list,
+            "lower_control": lower_control_list,
+            "r_upper_control": r_upper_control_list,
+            "r_bar_list": r_bar_list,
+            "std_list": std_list,
+        }
+
+        source_df = pd.DataFrame(pd_dict)
+        source_df["lower"] = source_df["y"] + 2 * source_df["std_list"]
+        source_df["upper"] = source_df["y"] + 3 * source_df["std_list"]
+        source = ColumnDataSource(source_df)
+
+        """u_three_sigma_band = Band(
+            base="x",
+            lower="lower",
+            upper="upper",
+            fill_alpha=1,
+            line_width=0.1,
+            line_color="black",
+            source=source,
+            level="underlay",
+        )"""
+
+        # u_two_sigma_band = Band()
+
+        # one_sigma_band = Band()
+
+        # l_two_sigma_band = Band()
+
+        # l_three_sigma_band = Band()
+
+        # p.add_layout(u_three_sigma_band)
+
+        p.step(x_list, y_list, color="red", line_dash="dashed", mode="after")
+
+        p.step(
+            x_list, upper_control_list, color="black", line_dash="dashed", mode="after"
+        )
+
+        p.step(
+            x_list, lower_control_list, color="black", line_dash="dashed", mode="after"
+        )
+
+        r.step(
+            x_list,
+            r_upper_control_list,
+            color="black",
+            line_dash="dashed",
+            mode="after",
+        )
+
+        r.step(x_list, r_bar_list, color="red", line_dash="dashed", mode="after")
+
+        hover = HoverTool(tooltips=tooltips, point_policy="snap_to_data", mode="vline")
+        hover.formatters = {"$snap_x": "datetime"}
+        p.add_tools(hover)
+
+        histogram_builder(data=data[column], ax=h)
+
+        if usl != None:
+            try:
+                h.vspan(x=usl[column], line_color="red")
+            except:
+                pass
+
+        if lsl != None:
+            try:
+                h.vspan(x=lsl[column], line_color="red")
+            except:
+                pass
+
+        c = bk_column(p, r)
+        grid = layout([[d], [c, h]], sizing_mode="stretch_width")
+        fig_list.append(grid)
+
+    save(bk_column(fig_list, sizing_mode="scale_width"))
