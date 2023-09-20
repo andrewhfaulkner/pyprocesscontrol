@@ -29,7 +29,7 @@ def shapiro_wilk(data: pd.Series) -> float:
 
     if data.isnull().values.all() == True:
         return np.NaN
-    
+
     if data.dtypes == object:
         return np.NaN
 
@@ -57,7 +57,7 @@ def cpk(data: pd.Series, lsl: float, usl: float) -> float:
     if data.dtype == object:
         return np.NaN
 
-    if stats.loc['count'] == 0:
+    if stats.loc["count"] == 0:
         return np.NaN
 
     cupk = (usl.values[0] - stats.loc["mean"]) / (3 * sig_st)
@@ -105,7 +105,7 @@ def ppk(data: pd.Series, lsl: float, usl: float) -> float:
 
     stats = data.describe()
 
-    if stats.loc['count'] == 0:
+    if stats.loc["count"] == 0:
         return np.NaN
 
     pupk = (usl.values[0] - stats.loc["mean"]) / (3 * stats.loc["std"])
@@ -177,3 +177,32 @@ def std_st(series: pd.Series) -> float:
 
     st_std = r_bar / 1.128
     return st_std
+
+
+def defect_probability(data: pd.Series, usl: float, lsl: float) -> float:
+    """
+    This function calculates the probabilty of producing an out of spec result. The calculation looks for the area under the normal distribution curve that lies beyond the spec limits.
+
+    Args:
+        data: pandas series containing the sample data
+        usl: upper spec limit for the calculation
+        lsl: lower spec limit for the calculation
+
+    Returns:
+        floating point number representing the probability of producing an out of spec result
+    """
+
+    try:
+        if isinstance(data, pd.Series) != True:
+            raise TypeError
+        if data.dtype == object:
+            return np.nan
+    except TypeError as e:
+        print(f"Expected type pandas series, no {type(data)}")
+        raise
+
+    stat = data.describe()
+    l_prob = stats.norm.cdf(lsl.values[0], stat.loc["mean"], stat.loc["std"])
+    u_prob = 1-stats.norm.cdf(usl.values[0], stat.loc["mean"], stat.loc["std"])
+
+    return max(l_prob, u_prob)
