@@ -42,6 +42,7 @@ def plot_control_charts(
     """
 
     phased = kwargs.get("phase", None)
+    time_frame = kwargs.get("time_frame", None)
 
     for group in data.raw_data.groups[product]:
         if type(data) == tools.datastructures.metadata:
@@ -53,10 +54,10 @@ def plot_control_charts(
             usl_dict = {}
             lsl_dict = {}
 
-            for index, rdata in include_columns.items():
+            for i, rdata in include_columns.items():
                 try:
-                    usl_dict[rdata] = data.metadata["USL"].loc[int(index)]
-                    lsl_dict[rdata] = data.metadata["LSL"].loc[int(index)]
+                    usl_dict[rdata] = data.metadata["USL"].loc[int(i)]
+                    lsl_dict[rdata] = data.metadata["LSL"].loc[int(i)]
                 except:
                     pass
 
@@ -71,6 +72,7 @@ def plot_control_charts(
                 filename=fname,
                 usl=usl_dict,
                 lsl=lsl_dict,
+                time_frame=time_frame,
             )
         if phased is not None:
             time_phase_control_chart(
@@ -95,6 +97,7 @@ def basic_control_chart(
     grouped: bool = False,
     usl=None,
     lsl=None,
+    **kwargs,
 ):
     """This function plots a control chart of data
 
@@ -110,6 +113,22 @@ def basic_control_chart(
         lsl: lower spec limit of the data being plotted
     """
 
+    time_frame: datetime.timedelta | str | pd.Timestamp = kwargs.get("time_frame", None)
+
+    if isinstance(time_frame, str):
+        num_phase = int(time_frame[0])
+        dur_phase = time_frame[1]
+
+        match dur_phase:
+            case "d":
+                t_delta = datetime.timedelta(days=num_phase)
+            case "m":
+                t_delta = datetime.timedelta(days=30 * num_phase)
+            case "y":
+                t_delta = datetime.timedelta(days=365.25 * num_phase)
+            case _:
+                raise ValueError("not an appropriate time delta")
+
     fig_list = []
 
     if index != None:
@@ -123,6 +142,12 @@ def basic_control_chart(
 
     if datetime_index:
         data.index = pd.to_datetime(data.index)
+        data.sort_index(inplace = True, ascending = False)
+
+    stop_date = data.index[0] - t_delta
+
+    if time_frame is not None and isinstance(stop_date, pd.Timestamp):
+        data = data[data.index >= stop_date]
 
     # Get the specs from the spec sheet
     df = pd.DataFrame()
@@ -174,7 +199,7 @@ def basic_control_chart(
         return
 
     col_names = data.columns
-    data = data.sort_index(axis=0, ascending=True)
+    #data = data.sort_index(axis=0, ascending=True)
     stats = data.describe()
 
     col_names = np.array(col_names)
@@ -184,7 +209,7 @@ def basic_control_chart(
     i = 0
     fig_num = 0
 
-    output_file(filename=filename + ".html", title="Test Control Chart")
+    output_file(filename=filename + ".html", title=filename)
 
     for column in col_names:
         if (
