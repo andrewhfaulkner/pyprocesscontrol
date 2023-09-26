@@ -16,19 +16,30 @@ from pyprocesscontrol import statistics
 
 
 class raw_data:
-    """
-    This class extracts and stores raw data from a data file. The file can be various formats including .xls, .xlsx, .csv
+    """The raw data class contains the raw data for analysis
 
-    Args:
-        filename:
-    Returns:
-        raw_data class
+    This class will upload and group data in an excel document. The document can be uploaded to the class and the class will extract the data into a pandas dataframe. From there, the data can be grouped on levels to as tight or wide of a grouping as needed.
+
+    Parameters
+    ----------
+    filename : str
+        The location name of the excel document in the working directory
+
+    Attributes
+    ----------
+    filename : str
+    sheetname : str, default = 'Sheet1'
+    header : int, default = 1
+    index : int, default = 1
+    groupby : array_like
+    path : str
+
     """
 
     def __init__(self, filename: str, **kwargs):
         """ """
         self.filename = filename
-        self.sheetname: str | None = kwargs.get("sheetname", None)
+        self.sheetname: str | None = kwargs.get("sheetname", "Sheet1")
         header: int = kwargs.get("header", 1)
         index: int = kwargs.get("index", 1)
         self.groupby: list = kwargs.get("groupby", None)
@@ -74,39 +85,44 @@ class raw_data:
 
         # Recursive grouping over the list given
         if self.groupby != None:
-            self.groups = self.group(groupby=self.groupby, df=self.df)
+            self.group(groupby=self.groupby)
 
-        self.keys = list(self.groups.keys())
+    def group(self, groupby: list) -> dict:
+        """This function groups the raw data and exports the groups in a dictionary format.
 
-    def group(self, groupby: list, df: pd.DataFrame) -> dict:
-        """
-        This function groups the raw data and exports the groups in a dictionary format.
+        Parameters
+        ----------
+        groupby : list_like
+            list of elements to group the dataframe by
 
-        Args:
-            groupby: list of elements to group the dataframe by
-            df: DataFrame containg data to be grouped
+
+        Returns
+        -------
+        dict
+            dictionary of grouped or recursively grouped dataframes on the `groupby` parameter.
         """
         groups = {}
 
         if len(groupby) > 1:
-            groups = self.__recursive_grouping(df, len(groupby), groupby)
+            groups = self.__recursive_grouping(self.df, len(groupby), groupby)
         if len(groupby) == 1:
-            for name, group in df.groupby(by=groupby[0], axis=1):
+            for name, group in self.df.groupby(by=groupby[0], axis=1):
                 groups[name] = group
 
-        return groups
+        self.groups = groups
+        self.keys = list(self.groups.keys())
 
     def __recursive_grouping(self, df: pd.DataFrame, number: int, level: list):
         r_dict = dict()
 
         if number > 1:
-            for name, group in df.groupby(by=level[-number], axis=0):
+            for name, group in df.groupby(by=level[-number]):
                 number = number - 1
                 r_dict[name] = self.__recursive_grouping(
                     group, number=number, level=level
                 )
         else:
-            for name, group in df.groupby(by=level, axis=0):
+            for name, group in df.groupby(by=level):
                 j = 0
                 group = group.dropna(axis=1, how="all")
                 for column in group.columns:
@@ -135,8 +151,25 @@ class raw_data:
 
 
 class metadata:
-    """
-    This class will carry the metadata for the raw_data. This will include spec limits, normality coefficients (shapiro-wilks test), and other metadata that will be useful in the process statisics
+    """A class containing metadata on the raw data class
+
+
+    This class will carry the metadata for the raw_data. This will include spec limits, normality coefficients (shapiro-wilks test), and other metadata that will be useful in the process statisics.
+
+    Parameters
+    ----------
+    filename : str
+        The `filename` for the file containing raw data
+
+    Attributes
+    ----------
+    filename
+    header : int, default = 1
+    index : int, default = 1
+    groupby : array_like
+    sheetname : str, default = 'Sheet1'
+    raw_data : datastructures.raw_data
+    metadata : pandas.DataFrame
     """
 
     def __init__(self, filename, **kwargs):
@@ -152,6 +185,9 @@ class metadata:
             index=self.index,
             groupby=self.groupby,
         )
+
+        self.load_data()
+
         columns = ["Product", "Grade", "Spec", "USL", "LSL", "TGT", "UCL", "LCL"]
 
         self.metadata = pd.DataFrame(columns=columns)
@@ -160,10 +196,14 @@ class metadata:
         """
         This function sets the spec limits on a specific spec. Can also add grade code and product if needed
 
-        Args:
-            spec: Column string for the spec to apply to
-            usl: upper spec limit for the spec
-            lsl: lower spec limit for the spec
+        Parameters
+        ----------
+            spec : str
+                Column string for the spec to apply to
+            usl : float
+                upper spec limit for the spec
+            lsl : float
+                lower spec limit for the spec
         """
 
         product: str = kwargs.get("product", None)
@@ -203,8 +243,30 @@ class metadata:
             self.metadata.loc[len(self.metadata.index)] = pd_dict
 
     def create_new_metadata(self, func: str):
-        """
-        This function adds new metadata from a specified list to the table for tracking in specs
+        """This function adds new metadata from a specified list to the table for tracking in specs
+
+        Parameters
+        ----------
+        func : str
+            A statistical function to apply to the metadata dataframe.
+            The list of possible functions is:
+                1.) 'shapiro-wilk' \n
+                2.) 'cpk' \n
+                3.) 'ppk' \n
+                4.) 'cp' \n
+                5.) 'pp' \n
+                6.) 'defect-rate' \n
+
+        Notes
+        ----------
+        1.) The shapiro-wilk test tests the dataset against the null hypothesis that the data comes from a normally distributed dataset. By default the alpha is 0.05. If the shapiro-wilk value is less than 0.05 one cannot confirm the null hypothesis and the samples may not come from a normally distributed data set.
+
+        2.) Both cpk and cp require a normally distributed, well controlled data set to be accurate. Do not use cpk and cp as a signal of control until the process is under control and normally distributed
+
+        3.) Both ppk and pp reject the notion the process is under control and the results are normally distributed. These process capability statistics should be used when the process is not under control
+
+        4.) The 'defect-rate' function requires a normally distributed process to accurately predict the failure rate.
+
         """
 
         match func:
@@ -288,109 +350,22 @@ class metadata:
 
         match export_type:
             case "xlsx":
-                if save_rawdata == True:
-                    path = os.path.join(os.getcwd(), "_raw_data.xlsx")
-                    try:
-                        wb = xw.Book(path)
-                    except:
-                        wb = xw.Book()
-
-                    # os.chdir(cwd)
-
-                    # Create new sheet for each product
-                    for key in self.raw_data.keys:
-                        try:
-                            wb.sheets.add(key)
-                            j = 0
-                            sheet = wb.sheets[key]
-                        except:
-                            sheet = wb.sheets[key]
-
-                        sheet.activate()
-
-                        if append_data == True:
-                            sheet.range("A1").select()
-                            try:
-                                data = xw.load()
-                                data = data.dropna(axis=1, how="all")
-                                sheet.clear()
-                                groupings = data.groupby("Grade Code")
-                                j = 0
-                            except:
-                                j = 0
-                                groupings = self.raw_data.df[
-                                    self.raw_data.df[self.groupby[0]] == key
-                                ].groupby(self.groupby[1])
-                                sheet.range("A1").select()
-
-                        # group all grades together but don't paste over them
-                        add_data = pd.DataFrame()
-                        for grade in groupings.groups.keys():
-                            # Is this the first pass through?
-                            if j == 0:
-                                try:
-                                    data = self.raw_data.groups[key][(key, grade)]
-                                    data.index = pd.to_datetime(data.index)
-                                    temp_df = groupings.get_group(grade)
-                                    temp_df = temp_df[~temp_df.index.isin(data.index)]
-                                    add_data = pd.concat(
-                                        [
-                                            add_data,
-                                            data,
-                                            temp_df.reset_index(inplace=True),
-                                        ]
-                                    )
-                                except:
-                                    add_data = pd.concat([add_data, data])
-                                sheet.range("A1").select()
-                                # sheet["A1"].value = add_data
-                                j = 1
-                            else:
-                                try:
-                                    data = self.raw_data.groups[key][(key, grade)]
-                                    temp_df = groupings.get_group(grade)
-                                    temp_df = temp_df[~temp_df.index.isin(data.index)]
-                                    add_data = pd.concat(
-                                        [
-                                            add_data,
-                                            data,
-                                            temp_df.reset_index(inplace=True),
-                                        ]
-                                    )
-                                except:
-                                    add_data = pd.concat([add_data, data])
-
-                        sheet.range("A1").options(header=True).value = add_data
-
-                    # save in working directory
-                    path = os.path.join(os.getcwd(), "_raw_data.xlsx")
-
-                    wb.save(path=path)
+                try:
+                    self.__save_raw_data(
+                        save_rawdata=save_rawdata,
+                        append_data=append_data,
+                    )
+                except:
+                    pass
 
                 if save_metadata == True:
-                    path = os.path.join(os.getcwd(), "_metadata.xlsx")
                     try:
-                        meta_wb = xw.Book(path)
-                    except:
-                        meta_wb = xw.Book()
-
-                    meta_wb.activate()
-                    sheet = meta_wb.sheets[meta_wb.sheet_names[0]]
-                    sheet.range("A1").select()
-
-                    try:
-                        curr_metadata = xw.load(index=1, header=1)
-                        curr_metadata = curr_metadata[
-                            ~curr_metadata.index.isin(self.metadata.index)
-                        ]
-                        sheet.range("A1").value = pd.concat(
-                            [self.metadata, curr_metadata]
+                        self.__save_metadata(
+                            append_data=append_data,
+                            save_metadata=save_metadata,
                         )
                     except:
-                        sheet.range("A1").value = self.metadata
-
-                    # save in working directory
-                    meta_wb.save(path)
+                        pass
 
             case "sql":
                 # insert code to use sqlalchemy to store all of the data
@@ -443,6 +418,9 @@ class metadata:
 
         os.chdir(cwd)
 
+        if wb == None and meta_wb == None:
+            return
+
         self.__load_raw_data(wb)
         self.__load_metadata(meta_wb=meta_wb)
 
@@ -456,7 +434,7 @@ class metadata:
 
         wb.activate()
 
-        self.raw_data.keys = list(set(self.raw_data.keys).intersection(wb.sheet_names))
+        self.raw_data.keys = list(set(self.raw_data.keys + wb.sheet_names))
 
         for key in self.raw_data.keys:
             groups = None
@@ -480,8 +458,8 @@ class metadata:
                         df_raw_data.index = df_raw_data.index.astype(typ)
                         temp_dict[grouping] = pd.concat(
                             [
-                                df_raw_data.reset_index(inplace=True),
-                                temp_df.loc[indexes.index],
+                                df_raw_data,
+                                temp_df.loc[indexes.index].reset_index(inplace=True),
                             ]
                         ).copy()
                     except KeyError:
@@ -519,39 +497,39 @@ class metadata:
         spec: str = kwargs.get("spec", None)
 
         if self.raw_data.groups != None:
-            data = self.raw_data.groups[product][product, grade][spec]
+            try:
+                data = self.raw_data.groups[product][product, grade][spec]
+                data = pd.to_numeric(data, errors="coerce")
+            except KeyError:
+                data = "No Data"
+
+        if isinstance(data, str) == True:
+            try:
+                self.metadata.loc[
+                    (self.metadata["Grade"] == grade)
+                    & (self.metadata["Product"] == product)
+                    & (self.metadata["Spec"] == spec),
+                    func,
+                ] = data
+                return
+            except KeyError:
+                self.metadata["shapiro-wilk"] = np.empty(len(self.metadata.index))
+                self.metadata.loc[
+                    (self.metadata["Grade"] == grade)
+                    & (self.metadata["Product"] == product)
+                    & (self.metadata["Spec"] == spec),
+                    func,
+                ] = data
+                return
 
         match func:
             case "shapiro-wilk":
                 if isinstance(data, pd.Series):
-                    p_val = statistics.shapiro_wilk(data)
-
-                # Does shapiro-wilk exist
-                try:
-                    self.metadata.loc[
-                        [
-                            (self.metadata["Grade"] == grade)
-                            & (self.metadata["Product"] == product)
-                            & (self.metadata["Spec"] == spec),
-                            "shapiro-wilk",
-                        ]
-                    ] = p_val
-
-                # Add shapiro-wilk column if it does not exist
-                except KeyError:
-                    self.metadata["shapiro-wilk"] = np.empty(len(self.metadata.index))
-                    self.metadata.loc[
-                        [
-                            (self.metadata["Grade"] == grade)
-                            & (self.metadata["Product"] == product)
-                            & (self.metadata["Spec"] == spec),
-                            "shapiro-wilk",
-                        ]
-                    ] = p_val
+                    x = statistics.shapiro_wilk(data)
 
             case "cpk":
                 if isinstance(data, pd.Series):
-                    cpk = statistics.cpk(
+                    x = statistics.cpk(
                         data,
                         usl=self.metadata["USL"].loc[
                             (self.metadata["Grade"] == grade)
@@ -564,33 +542,10 @@ class metadata:
                             & (self.metadata["Spec"] == spec)
                         ],
                     )
-
-                # does cpk already exist
-                try:
-                    self.metadata.loc[
-                        [
-                            (self.metadata["Grade"] == grade)
-                            & (self.metadata["Product"] == product)
-                            & (self.metadata["Spec"] == spec),
-                            "cpk",
-                        ]
-                    ] = cpk
-
-                # Add cpk column if it does not exist
-                except KeyError:
-                    self.metadata["cpk"] = np.empty(len(self.metadata.index))
-                    self.metadata.loc[
-                        [
-                            (self.metadata["Grade"] == grade)
-                            & (self.metadata["Product"] == product)
-                            & (self.metadata["Spec"] == spec),
-                            "cpk",
-                        ]
-                    ] = cpk
 
             case "cp":
                 if isinstance(data, pd.Series):
-                    cp = statistics.cp(
+                    x = statistics.cp(
                         data,
                         usl=self.metadata["USL"].loc[
                             (self.metadata["Grade"] == grade)
@@ -603,29 +558,10 @@ class metadata:
                             & (self.metadata["Spec"] == spec)
                         ],
                     )
-
-                # does cp already exist
-                try:
-                    self.metadata.loc[
-                        (self.metadata["Grade"] == grade)
-                        & (self.metadata["Product"] == product)
-                        & (self.metadata["Spec"] == spec),
-                        "cp",
-                    ] = cp
-
-                # Add cp column if it does not exist
-                except KeyError:
-                    self.metadata["cp"] = np.empty(len(self.metadata.index))
-                    self.metadata.loc[
-                        (self.metadata["Grade"] == grade)
-                        & (self.metadata["Product"] == product)
-                        & (self.metadata["Spec"] == spec),
-                        "cp",
-                    ] = cp
 
             case "pp":
                 if isinstance(data, pd.Series):
-                    pp = statistics.pp(
+                    x = statistics.pp(
                         data,
                         usl=self.metadata["USL"].loc[
                             (self.metadata["Grade"] == grade)
@@ -638,29 +574,10 @@ class metadata:
                             & (self.metadata["Spec"] == spec)
                         ],
                     )
-
-                # does pp already exist
-                try:
-                    self.metadata.loc[
-                        (self.metadata["Grade"] == grade)
-                        & (self.metadata["Product"] == product)
-                        & (self.metadata["Spec"] == spec),
-                        "pp",
-                    ] = pp
-
-                # Add pp column if it does not exist
-                except KeyError:
-                    self.metadata["pp"] = np.empty(len(self.metadata.index))
-                    self.metadata.loc[
-                        (self.metadata["Grade"] == grade)
-                        & (self.metadata["Product"] == product)
-                        & (self.metadata["Spec"] == spec),
-                        "pp",
-                    ] = pp
 
             case "ppk":
                 if isinstance(data, pd.Series):
-                    ppk = statistics.ppk(
+                    x = statistics.ppk(
                         data,
                         usl=self.metadata["USL"].loc[
                             (self.metadata["Grade"] == grade)
@@ -673,29 +590,10 @@ class metadata:
                             & (self.metadata["Spec"] == spec)
                         ],
                     )
-
-                # does ppk already exist
-                try:
-                    self.metadata.loc[
-                        (self.metadata["Grade"] == grade)
-                        & (self.metadata["Product"] == product)
-                        & (self.metadata["Spec"] == spec),
-                        "ppk",
-                    ] = ppk
-
-                # Add ppk column if it does not exist
-                except KeyError:
-                    self.metadata["ppk"] = np.empty(len(self.metadata.index))
-                    self.metadata.loc[
-                        (self.metadata["Grade"] == grade)
-                        & (self.metadata["Product"] == product)
-                        & (self.metadata["Spec"] == spec),
-                        "ppk",
-                    ] = ppk
 
             case "defect-rate":
                 if isinstance(data, pd.Series):
-                    prob = statistics.defect_probability(
+                    x = statistics.defect_probability(
                         data,
                         usl=self.metadata["USL"].loc[
                             (self.metadata["Grade"] == grade)
@@ -709,24 +607,139 @@ class metadata:
                         ],
                     )
 
-                # does ppk already exist
-                try:
-                    self.metadata.loc[
-                        (self.metadata["Grade"] == grade)
-                        & (self.metadata["Product"] == product)
-                        & (self.metadata["Spec"] == spec),
-                        "defect-rate",
-                    ] = prob
+        # does column func already exist
+        try:
+            self.metadata.loc[
+                (self.metadata["Grade"] == grade)
+                & (self.metadata["Product"] == product)
+                & (self.metadata["Spec"] == spec),
+                func,
+            ] = x
 
-                # Add ppk column if it does not exist
-                except KeyError:
-                    self.metadata["defect-rate"] = np.empty(len(self.metadata.index))
-                    self.metadata.loc[
-                        (self.metadata["Grade"] == grade)
-                        & (self.metadata["Product"] == product)
-                        & (self.metadata["Spec"] == spec),
-                        "defect-rate",
-                    ] = prob
+        # Add func column if it does not exist
+        except KeyError:
+            self.metadata[func] = np.empty(len(self.metadata.index))
+            self.metadata.loc[
+                (self.metadata["Grade"] == grade)
+                & (self.metadata["Product"] == product)
+                & (self.metadata["Spec"] == spec),
+                func,
+            ] = x
+
+    def __save_raw_data(
+        self,
+        save_rawdata: bool = True,
+        append_data: bool = True,
+    ):
+        """This function saves the rawdata to be held in the metadata class"""
+
+        if save_rawdata == True:
+            path = os.path.join(os.getcwd(), "_raw_data.xlsx")
+            try:
+                wb = xw.Book(path)
+            except:
+                wb = xw.Book()
+
+            # os.chdir(cwd)
+
+            # Create new sheet for each product
+            for key in self.raw_data.keys:
+                try:
+                    wb.sheets.add(key)
+                    j = 0
+                    sheet = wb.sheets[key]
+                except:
+                    sheet = wb.sheets[key]
+
+                sheet.activate()
+
+                if append_data == True:
+                    sheet.range("A1").select()
+                    try:
+                        data = xw.load()
+                        data = data.dropna(axis=1, how="all")
+                        sheet.clear()
+                        groupings = data.groupby("Grade Code")
+                        j = 0
+                    except:
+                        j = 0
+                        groupings = self.raw_data.df[
+                            self.raw_data.df[self.groupby[0]] == key
+                        ].groupby(self.groupby[1])
+                        sheet.range("A1").select()
+
+                # group all grades together but don't paste over them
+                add_data = pd.DataFrame()
+                for grade in groupings.groups.keys():
+                    # Is this the first pass through?
+                    if j == 0:
+                        try:
+                            data = self.raw_data.groups[key][(key, grade)]
+                            data.index = pd.to_datetime(data.index)
+                            temp_df = groupings.get_group(grade)
+                            temp_df = temp_df[~temp_df.index.isin(data.index)]
+                            add_data = pd.concat(
+                                [
+                                    add_data,
+                                    data,
+                                    temp_df.reset_index(inplace=True),
+                                ]
+                            )
+                        except:
+                            add_data = pd.concat([add_data, data])
+                        sheet.range("A1").select()
+                        # sheet["A1"].value = add_data
+                        j = 1
+                    else:
+                        try:
+                            data = self.raw_data.groups[key][(key, grade)]
+                            temp_df = groupings.get_group(grade)
+                            temp_df = temp_df[~temp_df.index.isin(data.index)]
+                            add_data = pd.concat(
+                                [
+                                    add_data,
+                                    data,
+                                    temp_df.reset_index(inplace=True),
+                                ]
+                            )
+                        except:
+                            add_data = pd.concat([add_data, data])
+
+                sheet.range("A1").options(header=True).value = add_data
+
+            # save in working directory
+            path = os.path.join(os.getcwd(), "_raw_data.xlsx")
+
+            wb.save(path=path)
+
+    def __save_metadata(
+        self,
+        save_metadata: bool = True,
+        append_data: bool = True,
+    ):
+        """This function saves the metadata"""
+
+        path = os.path.join(os.getcwd(), "_metadata.xlsx")
+        try:
+            meta_wb = xw.Book(path)
+        except:
+            meta_wb = xw.Book()
+
+        meta_wb.activate()
+        sheet = meta_wb.sheets[meta_wb.sheet_names[0]]
+        sheet.range("A1").select()
+
+        try:
+            curr_metadata = xw.load(index=1, header=1)
+            curr_metadata = curr_metadata[
+                ~curr_metadata.index.isin(self.metadata.index)
+            ]
+            sheet.range("A1").value = pd.concat([self.metadata, curr_metadata])
+        except:
+            sheet.range("A1").value = self.metadata
+
+        # save in working directory
+        meta_wb.save(path)
 
 
 class data_structure:
