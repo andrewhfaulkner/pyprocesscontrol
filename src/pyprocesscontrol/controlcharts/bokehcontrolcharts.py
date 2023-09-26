@@ -128,6 +128,8 @@ def basic_control_chart(
                 t_delta = datetime.timedelta(days=365.25 * num_phase)
             case _:
                 raise ValueError("not an appropriate time delta")
+        
+        stop_date = data.index[0] - t_delta
 
     fig_list = []
 
@@ -142,9 +144,9 @@ def basic_control_chart(
 
     if datetime_index:
         data.index = pd.to_datetime(data.index)
-        data.sort_index(inplace = True, ascending = False)
+        data.sort_index(inplace=True, ascending=False)
 
-    stop_date = data.index[0] - t_delta
+    
 
     if time_frame is not None and isinstance(stop_date, pd.Timestamp):
         data = data[data.index >= stop_date]
@@ -199,7 +201,7 @@ def basic_control_chart(
         return
 
     col_names = data.columns
-    #data = data.sort_index(axis=0, ascending=True)
+    # data = data.sort_index(axis=0, ascending=True)
     stats = data.describe()
 
     col_names = np.array(col_names)

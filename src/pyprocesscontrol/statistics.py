@@ -29,6 +29,8 @@ def shapiro_wilk(data: pd.Series) -> float:
 
     if data.isnull().values.all() == True:
         return np.NaN
+    elif len(data) < 3:
+        return np.NaN
 
     if data.dtypes == object:
         return np.NaN
@@ -83,7 +85,7 @@ def cp(data: pd.Series, lsl: float, usl: float) -> float:
     stats = data.describe()
     sig_st = std_st(data)
 
-    calc_cp = (usl - lsl) / (6 * sig_st)
+    calc_cp = (usl.values[0] - lsl.values[0]) / (6 * sig_st)
     return calc_cp
 
 
@@ -133,6 +135,13 @@ def pp(data: pd.Series, lsl: float, usl: float) -> float:
 
     if isinstance(data, pd.Series) != True:
         raise TypeError
+    
+    if data.dtype != float:
+        try:
+            data = data.astype(float)
+        except ValueError:
+            data = pd.to_numeric(data, errors= 'coerce')
+            data = data.astype(float)
 
     stats = data.describe()
 
@@ -144,7 +153,7 @@ def pp(data: pd.Series, lsl: float, usl: float) -> float:
     except KeyError:
         return np.NaN
 
-    calc_pp = float((usl - lsl) / (6 * stats.loc["std"]))
+    calc_pp = (usl.values[0] - lsl.values[0]) / (6 * stats.loc["std"])
     return calc_pp
 
 
@@ -170,10 +179,17 @@ def std_st(series: pd.Series) -> float:
         print(f"Expected type pandas series, not {type(series)}")
         raise
 
-    dropped = series[:-1]
-    shifted = series[1:]
-    rng = abs(shifted - dropped.values)
-    r_bar = 1 / (len(rng) - 1) * rng.sum()
+    if len(series) <= 2:
+        print("short")
+        return np.NaN
+
+    try:
+        dropped = series[:-1]
+        shifted = series[1:]
+        rng = abs(shifted - dropped.values)
+        r_bar = 1 / (len(rng) - 1) * rng.sum()
+    except:
+        print("oops")
 
     st_std = r_bar / 1.128
     return st_std
