@@ -13,7 +13,9 @@ For a minumum viable product, the package must include
 7. Data storage and collection <- Done
 8. Time series plotting and calculations. I.e. changes over time.
     - time-phased control charts are complete. <-done
+    - time-phased regression (i.e decoupling two variables etc.)
 
 
 Future versions may include:
 1. Model building with scikitlearn or tensorflow
+2. DOE development
