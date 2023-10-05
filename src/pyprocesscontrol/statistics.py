@@ -135,12 +135,12 @@ def pp(data: pd.Series, lsl: float, usl: float) -> float:
 
     if isinstance(data, pd.Series) != True:
         raise TypeError
-    
+
     if data.dtype != float:
         try:
             data = data.astype(float)
         except ValueError:
-            data = pd.to_numeric(data, errors= 'coerce')
+            data = pd.to_numeric(data, errors="coerce")
             data = data.astype(float)
 
     stats = data.describe()
@@ -219,6 +219,88 @@ def defect_probability(data: pd.Series, usl: float, lsl: float) -> float:
 
     stat = data.describe()
     l_prob = stats.norm.cdf(lsl.values[0], stat.loc["mean"], stat.loc["std"])
-    u_prob = 1-stats.norm.cdf(usl.values[0], stat.loc["mean"], stat.loc["std"])
+    u_prob = 1 - stats.norm.cdf(usl.values[0], stat.loc["mean"], stat.loc["std"])
 
     return max(l_prob, u_prob)
+
+
+def ucl(data: pd.Series) -> float:
+    """The ucl function calculates the upper control limit for a set of data
+
+    This function calculates the upper control limit for a set of data. The upper control limit is typically 3 standard deviations above the mean of the dataset.
+
+    Parameters
+    ----------
+    data: pandas.Series
+        A pandas series of the data to be analyzed
+
+    Returns
+    -------
+    float
+        Floating point number representing the upper control limit of a dataset
+
+    Notes
+    -----
+
+    """
+
+    try:
+        if isinstance(data, pd.Series) != True:
+            raise TypeError
+        if data.dtype == object:
+            return np.NaN
+
+    except TypeError as e:
+        print(f"Expected type pandas series, not {type(data)}")
+        raise
+
+    if len(data) <= 2:
+        print("short")
+        return np.NaN
+
+    stats = data.describe()
+
+    upper_control = stats.loc["mean"] + 3 * stats.loc["std"]
+
+    return upper_control
+
+
+def lcl(data: pd.Series) -> float:
+    """The lcl function calculates the lower control limit for a set of data
+
+    This function calculates the lower control limit for a set of data. The lower control limit is typically 3 standard deviations below the mean of the dataset.
+
+    Parameters
+    ----------
+    data: pandas.Series
+        A pandas series of the data to be analyzed
+
+    Returns
+    -------
+    float
+        Floating point number representing the lower control limit of a dataset
+
+    Notes
+    -----
+
+    """
+
+    try:
+        if isinstance(data, pd.Series) != True:
+            raise TypeError
+        if data.dtype == object:
+            return np.NaN
+
+    except TypeError as e:
+        print(f"Expected type pandas series, not {type(data)}")
+        raise
+
+    if len(data) <= 2:
+        print("short")
+        return np.NaN
+
+    stats = data.describe()
+
+    upper_control = stats.loc["mean"] - 3 * stats.loc["std"]
+
+    return upper_control
