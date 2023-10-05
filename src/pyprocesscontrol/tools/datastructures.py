@@ -256,6 +256,8 @@ class metadata:
                 4.) 'cp' \n
                 5.) 'pp' \n
                 6.) 'defect-rate' \n
+                7.) 'upper-control' \n
+                8.) 'lower-control' \n
 
         Notes
         ----------
@@ -267,60 +269,17 @@ class metadata:
 
         4.) The 'defect-rate' function requires a normally distributed process to accurately predict the failure rate.
 
+        5.) The upper control limits should be set on a longer term set of data to prevent setting the limits too narrow. The upper and lower control limits should not be changed unless the control chart shows a lot of rule 7 violations. This prevents stratification and incorrectly setting the control limits wide or narrow.
+
         """
 
-        match func:
-            case "shapiro-wilk":
-                for index, data in self.metadata.iterrows():
-                    self.__metadata_apply(
-                        func,
-                        product=data["Product"],
-                        grade=data["Grade"],
-                        spec=data["Spec"],
-                    )
-            case "cpk":
-                for index, data in self.metadata.iterrows():
-                    self.__metadata_apply(
-                        func,
-                        product=data["Product"],
-                        grade=data["Grade"],
-                        spec=data["Spec"],
-                    )
-            case "ppk":
-                for index, data in self.metadata.iterrows():
-                    self.__metadata_apply(
-                        func,
-                        product=data["Product"],
-                        grade=data["Grade"],
-                        spec=data["Spec"],
-                    )
-            case "cp":
-                for index, data in self.metadata.iterrows():
-                    if index == 53:
-                        pass
-
-                    self.__metadata_apply(
-                        func,
-                        product=data["Product"],
-                        grade=data["Grade"],
-                        spec=data["Spec"],
-                    )
-            case "pp":
-                for index, data in self.metadata.iterrows():
-                    self.__metadata_apply(
-                        func,
-                        product=data["Product"],
-                        grade=data["Grade"],
-                        spec=data["Spec"],
-                    )
-            case "defect-rate":
-                for index, data in self.metadata.iterrows():
-                    self.__metadata_apply(
-                        func,
-                        product=data["Product"],
-                        grade=data["Grade"],
-                        spec=data["Spec"],
-                    )
+        for index, data in self.metadata.iterrows():
+            self.__metadata_apply(
+                func,
+                product=data["Product"],
+                grade=data["Grade"],
+                spec=data["Spec"],
+            )
 
     def save_data(
         self,
@@ -372,6 +331,7 @@ class metadata:
                 pass
 
         os.chdir(cwd)
+        xw.apps.active.quit()
 
     def load_data(self):
         """
@@ -447,8 +407,16 @@ class metadata:
                 pass
 
             temp_dict = {}
-            for grouping in self.raw_data.groups[key].keys():
-                df_raw_data = self.raw_data.groups[key][grouping].copy()
+            grp = self.raw_data.groups.get(key, None)
+
+            if grp == None:
+                grp = groups.groups
+
+            for grouping in grp.keys():
+                try:
+                    df_raw_data = self.raw_data.groups[key][grouping].copy()
+                except:
+                    df_raw_data = pd.DataFrame()
 
                 if groups is not None:
                     try:
@@ -607,6 +575,14 @@ class metadata:
                         ],
                     )
 
+            case "upper-control":
+                if isinstance(data, pd.Series):
+                    x = statistics.ucl(data)
+
+            case "lower-control":
+                if isinstance(data, pd.Series):
+                    x = statistics.lcl(data)
+
         # does column func already exist
         try:
             self.metadata.loc[
@@ -711,6 +687,7 @@ class metadata:
             path = os.path.join(os.getcwd(), "_raw_data.xlsx")
 
             wb.save(path=path)
+            wb.close()
 
     def __save_metadata(
         self,
@@ -740,112 +717,29 @@ class metadata:
 
         # save in working directory
         meta_wb.save(path)
+        meta_wb.close()
 
 
-class data_structure:
-    """
-    The purpose of this class is to break down the imported data into both
-    product and grade code. Then, store the data in an easily accessable way
-    to return specific data quickly. This may evolve to include a database as well if I feel like it needs it.
-    """
-
-    def __init__(self, workbook: str):
-        if path.isfile(workbook) == True:
-            self.wb = xw.Book(workbook)
-            data = self.__data_extract(self.wb)
-            levels = ["Product Name", "Grade Code"]
-            self.groups = self.recursive_grouping(data, len(levels), levels)
-        else:
-            raise ValueError("The workbook does not exist")
-
-    def __data_extract(self, wb: xw.Book) -> pd.DataFrame:
-        """
-        This function extracts data out of a specific workbook and places
-        it into a pandas dataframe. This will only work with the quality
-        dashboard excel spreadsheet.
-
-        Args:
-            wb: xlwings workbook associated with the data to be extracted
-
-        Returns:
-            pandas DataFrame
-        """
-
-        sheet = wb.sheets[wb.sheet_names[0]]
-        sheet.range((4, 1), (267, 176)).select()
-        sheet.range("4:287").api.Delete(DeleteShiftDirection.xlShiftUp)
-        val = sheet.range("A4:C4").value
-        sheet.range("A4:C4").clear()
-        sheet.range("A2:C2").value = val
-        sheet.range("3:4").api.Delete(DeleteShiftDirection.xlShiftUp)
-        sheet.range("1:1").api.Delete(DeleteShiftDirection.xlShiftUp)
-        sheet.range("D:D").api.Delete(DeleteShiftDirection.xlShiftToLeft)
-        sheet.range("A1").select()
-        data = xw.load(header=1, index=1)
-        wb.close()
-        return data
-
-    def data_grouping(self, data, level, number) -> dict:
-        """
-        This function groups the data into levels and returns each level in a dictionary.
-        """
-
-        return_dict = dict()
-
-        length = len(level)
-
-        for i in range(0, len(level)):
-            pass
-
-    def recursive_grouping(self, y, number, level):
-        r_dict = dict()
-
-        if number > 1:
-            for name, group in y.groupby(by=level[-number], axis=0):
-                number = number - 1
-                r_dict[name] = self.recursive_grouping(
-                    group, number=number, level=level
-                )
-        else:
-            for name, group in y.groupby(by=level, axis=0):
-                r_dict[name] = group
-
-            return r_dict
-
-        return r_dict
+class processdata:
+    """A class containing process data
 
 
-class sql_query:
-    """
-    This class is designed to store the control chart data into the database. This will also store all the KPI data
+    This class will carry the metadata for the raw_data. This will include spec limits, normality coefficients (shapiro-wilks test), and other metadata that will be useful in the process statisics.
+
+    Parameters
+    ----------
+    filename : str
+        The `filename` for the file containing raw data
+
+    Attributes
+    ----------
+    filename
+    header : int, default = 1
+    index : int, default = 1
+    groupby : array_like
+    sheetname : str, default = 'Sheet1'
+    raw_data : datastructures.raw_data
+    metadata : pandas.DataFrame
     """
 
-    def __init__(self):
-        cwd = os.getcwd()
-        path = path.join(cwd, "chart_data")
-        connected = False
-
-        while connected != True:
-            self.engine = sqlalchemy.create_engine("sqlite:///" + path)
-
-            try:
-                self.engine.connect()
-                connected = True
-
-            except:
-                print("an error has occurred")
-
-        self.Base = declarative_base()
-
-        Session = sqlalchemy.orm.sessionmaker(bine=self.engine)
-        self.Session = Session()
-
-    def import_data(self, data: pd.DataFrame) -> None:
-        """
-        This function imports and stores new data into the database
-
-        Args:
-            data: pandas dataframe containing the data to be stored
-        """
-
-        pass
+    pass
